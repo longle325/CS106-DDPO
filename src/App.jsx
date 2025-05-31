@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom';
+import { Routes, Route, Link, useLocation } from 'react-router-dom';
 import { 
   ThemeProvider, 
   createTheme, 
@@ -23,6 +23,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import MenuIcon from '@mui/icons-material/Menu';
 import CloseIcon from '@mui/icons-material/Close';
 import InferencePage from './pages/InferencePage';
+import DDPOLogo from './components/DDPOLogo';
 
 const darkTheme = createTheme({
   palette: {
@@ -107,26 +108,6 @@ const darkTheme = createTheme({
     }
   },
 });
-
-// Simple DDPO Logo component
-const DDPOLogo = ({ size = 32, showAnimation = true }) => (
-  <Box sx={{
-    width: size,
-    height: size,
-    borderRadius: '50%',
-    background: 'linear-gradient(135deg, #00f5ff, #8b5cf6)',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    mr: 2,
-    fontSize: size * 0.4,
-    fontWeight: 'bold',
-    color: 'white',
-    animation: showAnimation ? 'rotate0 20s linear infinite' : 'none'
-  }}>
-    D
-  </Box>
-);
 
 function Home() {
   return (
