@@ -1,11 +1,28 @@
 import React from 'react';
-import { Routes, Route, Link, useLocation } from 'react-router-dom';
-import { AppBar, Toolbar, Typography, Button, Box, Container } from '@mui/material';
-import { ThemeProvider, createTheme } from '@mui/material/styles';
-import CssBaseline from '@mui/material/CssBaseline';
-import { motion } from 'framer-motion';
+import { BrowserRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom';
+import { 
+  ThemeProvider, 
+  createTheme, 
+  CssBaseline, 
+  AppBar, 
+  Toolbar, 
+  Typography, 
+  Button, 
+  Container, 
+  Box, 
+  Paper, 
+  Grid,
+  Card,
+  CardContent,
+  Chip,
+  TextField,
+  IconButton,
+  useMediaQuery
+} from '@mui/material';
+import { motion, AnimatePresence } from 'framer-motion';
+import MenuIcon from '@mui/icons-material/Menu';
+import CloseIcon from '@mui/icons-material/Close';
 import InferencePage from './pages/InferencePage';
-import DDPOLogo from './components/DDPOLogo';
 
 const darkTheme = createTheme({
   palette: {
@@ -90,6 +107,26 @@ const darkTheme = createTheme({
     }
   },
 });
+
+// Simple DDPO Logo component
+const DDPOLogo = ({ size = 32, showAnimation = true }) => (
+  <Box sx={{
+    width: size,
+    height: size,
+    borderRadius: '50%',
+    background: 'linear-gradient(135deg, #00f5ff, #8b5cf6)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    mr: 2,
+    fontSize: size * 0.4,
+    fontWeight: 'bold',
+    color: 'white',
+    animation: showAnimation ? 'rotate0 20s linear infinite' : 'none'
+  }}>
+    D
+  </Box>
+);
 
 function Home() {
   return (
@@ -400,6 +437,12 @@ function AboutUs() {
                         height: '100%',
                         objectFit: 'cover'
                       }}
+                      onError={(e) => {
+                        console.error(`Failed to load image: ${member.image}`);
+                        e.target.style.display = 'none';
+                        e.target.parentElement.innerHTML = `<div style="display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; background: rgba(255,255,255,0.1); color: #fff; font-size: 12px; text-align: center;">${member.name.split(' ').map(n => n[0]).join('')}</div>`;
+                      }}
+                      onLoad={() => console.log(`Successfully loaded: ${member.image}`)}
                     />
                   </Box>
                 </Box>
