@@ -13,7 +13,7 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import FullscreenIcon from '@mui/icons-material/Fullscreen';
 import DDPOLogo from '../components/DDPOLogo';
 
-const API_BASE = 'http://localhost:8000';
+const API_BASE = 'https://cd19-192-222-50-114.ngrok-free.app';
 
 const samplingMethods = [
   'Euler a', 'Euler', 'LMS', 'Heun', 'DPM2', 'DPM++ 2M', 'DDIM', 'PLMS'
@@ -55,18 +55,36 @@ export default function InferencePage() {
 
   const checkBackendHealth = async () => {
     try {
-      const response = await fetch(`${API_BASE}/health`);
+      console.log('Checking backend health at:', `${API_BASE}/health`);
+      const response = await fetch(`${API_BASE}/health`, {
+        headers: {
+          'ngrok-skip-browser-warning': 'true',
+        },
+      });
+      
+      console.log('Health check response status:', response.status);
+      console.log('Health check response headers:', response.headers);
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
       const health = await response.json();
+      console.log('Backend health data:', health);
       setBackendHealth(health);
     } catch (error) {
       console.error('Backend health check failed:', error);
-      setBackendHealth({ status: 'error', model_loaded: false });
+      setBackendHealth({ status: 'error', model_loaded: false, error: error.message });
     }
   };
 
   const loadCheckpoints = async () => {
     try {
-      const response = await fetch(`${API_BASE}/checkpoints`);
+      const response = await fetch(`${API_BASE}/checkpoints`, {
+        headers: {
+          'ngrok-skip-browser-warning': 'true',
+        },
+      });
       const data = await response.json();
       setCheckpoints(data.checkpoints || []);
     } catch (error) {
@@ -108,6 +126,7 @@ export default function InferencePage() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
         },
         body: JSON.stringify(requestData),
       });
@@ -202,10 +221,13 @@ export default function InferencePage() {
                 label={
                   backendHealth.status === 'healthy' 
                     ? `Model: ${backendHealth.model_loaded ? 'Loaded' : 'Not Loaded'} | Aesthetic Scorer: ${backendHealth.aesthetic_scorer ? 'Ready' : 'Not Available'}`
-                    : 'Backend Error'
+                    : backendHealth.error 
+                      ? `Backend Error: ${backendHealth.error}`
+                      : 'Backend Error'
                 }
                 color={backendHealth.status === 'healthy' && backendHealth.model_loaded ? 'success' : 'warning'}
                 size="small"
+                sx={{ maxWidth: '90%' }}
               />
             </Box>
           )}

@@ -17,7 +17,7 @@ function App() {
 
     const loadHistory = async () => {
         try {
-            const response = await axios.get('http://localhost:8000/history');
+            const response = await axios.get('https://cd19-192-222-50-114.ngrok-free.app/history');
             setHistory(response.data);
         } catch (error) {
             console.error('Error loading history:', error);
@@ -26,7 +26,7 @@ function App() {
 
     const loadSuggestions = async () => {
         try {
-            const response = await axios.get('http://localhost:8000/suggestions');
+            const response = await axios.get('https://cd19-192-222-50-114.ngrok-free.app/suggestions');
             setSuggestions(response.data);
         } catch (error) {
             console.error('Error loading suggestions:', error);
@@ -38,7 +38,7 @@ function App() {
         
         setIsGenerating(true);
         try {
-            const response = await axios.post('http://localhost:8000/generate', {
+            const response = await axios.post('https://cd19-192-222-50-114.ngrok-free.app/generate', {
                 prompt,
                 num_images: 1,
                 guidance_scale: 7.5,
