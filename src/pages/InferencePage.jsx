@@ -58,6 +58,10 @@ export default function InferencePage() {
   const [selectedImageDetails, setSelectedImageDetails] = useState(null);
   const [detailDialogOpen, setDetailDialogOpen] = useState(false);
 
+  // Add generation timer states
+  const [generationStartTime, setGenerationStartTime] = useState(null);
+  const [generationElapsedTime, setGenerationElapsedTime] = useState(0);
+
   // Check backend health on component mount
   useEffect(() => {
     checkBackendHealth();
@@ -86,6 +90,25 @@ export default function InferencePage() {
   useEffect(() => {
     localStorage.setItem('ddpo_image_history', JSON.stringify(imageHistory));
   }, [imageHistory]);
+
+  // Add timer effect for generation
+  useEffect(() => {
+    let interval;
+    if (isGenerating && generationStartTime) {
+      interval = setInterval(() => {
+        const elapsed = Date.now() - generationStartTime;
+        setGenerationElapsedTime(elapsed);
+      }, 100); // Update every 100ms for smooth timer
+    } else {
+      setGenerationElapsedTime(0);
+    }
+
+    return () => {
+      if (interval) {
+        clearInterval(interval);
+      }
+    };
+  }, [isGenerating, generationStartTime]);
 
   const checkBackendHealth = async () => {
     try {
@@ -216,6 +239,7 @@ export default function InferencePage() {
     
     setIsGenerating(true);
     setError('');
+    setGenerationStartTime(Date.now()); // Start the timer
     
     try {
       const requestData = {
@@ -283,6 +307,7 @@ export default function InferencePage() {
       setError(error.message);
     } finally {
       setIsGenerating(false);
+      setGenerationStartTime(null); // Reset timer
     }
   };
 
@@ -699,6 +724,9 @@ export default function InferencePage() {
                       <DDPOLogo size={60} showAnimation={true} />
                       <Typography color="text.secondary" variant="h6">
                         Generating your image...
+                      </Typography>
+                      <Typography color="primary.main" variant="h5" sx={{ fontWeight: 500, fontFamily: 'monospace' }}>
+                        {Math.floor(generationElapsedTime / 1000)}s
                       </Typography>
                       <Typography color="text.secondary" variant="body2" sx={{ opacity: 0.7 }}>
                         This may take a few moments
