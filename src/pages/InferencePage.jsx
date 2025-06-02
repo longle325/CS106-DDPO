@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Container, Typography, Grid, Paper, Box, TextField, Button, Slider, Select, MenuItem, InputLabel, FormControl, IconButton, Chip, Divider, Card, CardMedia, CardActions, Alert, CircularProgress
+  Container, Typography, Grid, Paper, Box, TextField, Button, Slider, Select, MenuItem, InputLabel, FormControl, IconButton, Chip, Divider, Card, CardMedia, CardActions, Alert, CircularProgress, LinearProgress, Dialog, DialogTitle, DialogContent, DialogActions
 } from '@mui/material';
 import { motion, AnimatePresence } from 'framer-motion';
 import AutorenewIcon from '@mui/icons-material/Autorenew';
@@ -11,12 +11,15 @@ import DownloadIcon from '@mui/icons-material/Download';
 import ArchiveIcon from '@mui/icons-material/Archive';
 import DeleteIcon from '@mui/icons-material/Delete';
 import FullscreenIcon from '@mui/icons-material/Fullscreen';
+import InfoIcon from '@mui/icons-material/Info';
+import HistoryIcon from '@mui/icons-material/History';
+import CloseIcon from '@mui/icons-material/Close';
 import DDPOLogo from '../components/DDPOLogo';
 
 const API_BASE = 'https://cd19-192-222-50-114.ngrok-free.app';
 
 const samplingMethods = [
-  'Euler a', 'Euler', 'LMS', 'Heun', 'DPM2', 'DPM++ 2M', 'DDIM', 'PLMS'
+  'DDPM', 'Euler a', 'Euler', 'LMS', 'Heun', 'DPM2', 'DPM++ 2M', 'DDIM', 'PLMS'
 ];
 
 const presetPrompts = [
@@ -31,7 +34,7 @@ const presetPrompts = [
 export default function InferencePage() {
   const [checkpoints, setCheckpoints] = useState([]);
   const [checkpoint, setCheckpoint] = useState('aesthetic');
-  const [samplingMethod, setSamplingMethod] = useState('DDIM');
+  const [samplingMethod, setSamplingMethod] = useState('DDPM');
   const [samplingSteps, setSamplingSteps] = useState(20);
   const [width, setWidth] = useState(512);
   const [height, setHeight] = useState(512);
@@ -46,12 +49,43 @@ export default function InferencePage() {
   const [error, setError] = useState('');
   const [lastMetadata, setLastMetadata] = useState(null);
   const [backendHealth, setBackendHealth] = useState(null);
+  const [checkpointLoading, setCheckpointLoading] = useState(false);
+  const [loadingProgress, setLoadingProgress] = useState(0);
+  const [loadingMessage, setLoadingMessage] = useState('');
+  
+  // New states for image history and detailed view
+  const [imageHistory, setImageHistory] = useState([]);
+  const [selectedImageDetails, setSelectedImageDetails] = useState(null);
+  const [detailDialogOpen, setDetailDialogOpen] = useState(false);
 
   // Check backend health on component mount
   useEffect(() => {
     checkBackendHealth();
     loadCheckpoints();
   }, []);
+
+  // Refresh health check periodically and after checkpoint changes
+  useEffect(() => {
+    const interval = setInterval(checkBackendHealth, 10000); // Check every 10 seconds
+    return () => clearInterval(interval);
+  }, []);
+
+  // Load image history from localStorage on mount
+  useEffect(() => {
+    const savedHistory = localStorage.getItem('ddpo_image_history');
+    if (savedHistory) {
+      try {
+        setImageHistory(JSON.parse(savedHistory));
+      } catch (error) {
+        console.error('Failed to load image history:', error);
+      }
+    }
+  }, []);
+
+  // Save image history to localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem('ddpo_image_history', JSON.stringify(imageHistory));
+  }, [imageHistory]);
 
   const checkBackendHealth = async () => {
     try {
@@ -100,6 +134,83 @@ export default function InferencePage() {
     setPrompt(presetPrompt);
   };
 
+  const handleCheckpointChange = async (newCheckpoint) => {
+    setCheckpoint(newCheckpoint);
+    setCheckpointLoading(true);
+    setLoadingProgress(0);
+    setError('');
+    
+    // Try to preload the checkpoint
+    try {
+      console.log(`Preloading checkpoint: ${newCheckpoint}`);
+      
+      // Start polling progress
+      const pollProgress = async () => {
+        try {
+          const progressResponse = await fetch(`${API_BASE}/loading_progress`, {
+            headers: { 'ngrok-skip-browser-warning': 'true' }
+          });
+          if (progressResponse.ok) {
+            const progressData = await progressResponse.json();
+            setLoadingProgress(progressData.progress || 0);
+            setLoadingMessage(progressData.message || 'Loading...');
+            
+            if (progressData.status === 'completed' || progressData.status === 'error') {
+              return true; // Stop polling
+            }
+          }
+        } catch (e) {
+          console.log('Failed to get progress:', e);
+        }
+        return false;
+      };
+      
+      // Start loading checkpoint
+      const loadPromise = fetch(`${API_BASE}/load_checkpoint`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'ngrok-skip-browser-warning': 'true',
+        },
+        body: JSON.stringify({ checkpoint: newCheckpoint }),
+      });
+      
+      // Poll progress every 500ms
+      const progressInterval = setInterval(async () => {
+        const shouldStop = await pollProgress();
+        if (shouldStop) {
+          clearInterval(progressInterval);
+        }
+      }, 500);
+      
+      const response = await loadPromise;
+      clearInterval(progressInterval);
+      
+      if (response.ok) {
+        const result = await response.json();
+        console.log('Checkpoint loaded:', result);
+        setLoadingProgress(100);
+        
+        // Refresh health status immediately
+        setTimeout(() => {
+          checkBackendHealth();
+          setCheckpointLoading(false);
+          setLoadingProgress(0);
+          setLoadingMessage('');
+        }, 1000);
+      } else {
+        throw new Error(`Failed to load checkpoint: ${response.statusText}`);
+      }
+    } catch (error) {
+      console.log('Failed to preload checkpoint:', error);
+      setError(`Failed to load checkpoint: ${error.message}`);
+      setCheckpointLoading(false);
+      setLoadingProgress(0);
+      setLoadingMessage('');
+      // Not critical, will load during generation
+    }
+  };
+
   const handleGenerate = async () => {
     if (!prompt.trim()) return;
     
@@ -122,7 +233,8 @@ export default function InferencePage() {
         use_aesthetic_scoring: true
       };
 
-      const response = await fetch(`${API_BASE}/generate`, {
+      // Start generation request
+      const generatePromise = fetch(`${API_BASE}/generate`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -130,6 +242,8 @@ export default function InferencePage() {
         },
         body: JSON.stringify(requestData),
       });
+      
+      const response = await generatePromise;
 
       if (!response.ok) {
         const errorData = await response.json();
@@ -138,12 +252,31 @@ export default function InferencePage() {
 
       const data = await response.json();
       setImages(data.images);
-      setLastMetadata(data.metadata);
+      
+      // Enhanced metadata with model name
+      const enhancedMetadata = {
+        ...data.metadata,
+        model_name: checkpoint === 'aesthetic' ? 'Aesthetic DDPO' : 'Stable Diffusion v1.4',
+        timestamp: new Date().toISOString()
+      };
+      setLastMetadata(enhancedMetadata);
+      
+      // Add to image history
+      const historyEntry = {
+        id: Date.now(),
+        images: data.images,
+        metadata: enhancedMetadata,
+        timestamp: new Date().toISOString()
+      };
+      setImageHistory(prev => [historyEntry, ...prev.slice(0, 49)]); // Keep last 50 entries
       
       // Update seed with the actual seed used
       if (data.metadata.seed !== undefined) {
         setSeed(data.metadata.seed);
       }
+      
+      // Refresh backend health to show current checkpoint
+      checkBackendHealth();
       
     } catch (error) {
       console.error('Generation error:', error);
@@ -186,6 +319,31 @@ export default function InferencePage() {
     `);
   };
 
+  // New function to handle image detail view
+  const handleShowImageDetails = (imageData, imageIndex = 0) => {
+    setSelectedImageDetails({
+      ...imageData,
+      selectedImageIndex: imageIndex
+    });
+    setDetailDialogOpen(true);
+  };
+
+  // New function to handle history image click
+  const handleHistoryImageClick = (historyItem, imageIndex = 0) => {
+    const detailsWithImages = {
+      ...historyItem.metadata,
+      images: historyItem.images,
+      selectedImageIndex: imageIndex
+    };
+    setSelectedImageDetails(detailsWithImages);
+    setDetailDialogOpen(true);
+  };
+
+  // New function to clear history
+  const handleClearHistory = () => {
+    setImageHistory([]);
+  };
+
   return (
     <Container maxWidth="xl" sx={{ py: 4 }}>
       <motion.div
@@ -220,14 +378,15 @@ export default function InferencePage() {
               <Chip 
                 label={
                   backendHealth.status === 'healthy' 
-                    ? `Model: ${backendHealth.model_loaded ? 'Loaded' : 'Not Loaded'} | Aesthetic Scorer: ${backendHealth.aesthetic_scorer ? 'Ready' : 'Not Available'}`
+                    ? `Current Model: ${backendHealth.current_checkpoint || 'Unknown'}${checkpointLoading ? ' (Loading...)' : ''} | Loaded: ${backendHealth.model_loaded ? 'Yes' : 'No'} | Aesthetic Scorer: ${backendHealth.aesthetic_scorer ? 'Ready' : 'Not Available'}`
                     : backendHealth.error 
                       ? `Backend Error: ${backendHealth.error}`
                       : 'Backend Error'
                 }
-                color={backendHealth.status === 'healthy' && backendHealth.model_loaded ? 'success' : 'warning'}
+                color={backendHealth.status === 'healthy' && backendHealth.model_loaded && !checkpointLoading ? 'success' : 'warning'}
                 size="small"
                 sx={{ maxWidth: '90%' }}
+                icon={checkpointLoading ? <CircularProgress size={16} color="inherit" /> : undefined}
               />
             </Box>
           )}
@@ -261,21 +420,45 @@ export default function InferencePage() {
               </Box>
 
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3, mb: 4 }}>
-                {/* Model Selection */}
+                {/* Model Selection - Limited to 2 options */}
                 <FormControl fullWidth>
                   <InputLabel>Model Checkpoint</InputLabel>
                   <Select
                     value={checkpoint}
                     label="Model Checkpoint"
-                    onChange={e => setCheckpoint(e.target.value)}
+                    onChange={e => handleCheckpointChange(e.target.value)}
+                    disabled={checkpointLoading || isGenerating}
                   >
                     <MenuItem value="aesthetic">Aesthetic DDPO (Recommended)</MenuItem>
-                    <MenuItem value="sd15">Stable Diffusion v1.5</MenuItem>
-                    <MenuItem value="sd21">Stable Diffusion v2.1</MenuItem>
-                    {checkpoints.map(cp => (
-                      <MenuItem key={cp.path} value={cp.path}>{cp.name}</MenuItem>
-                    ))}
+                    <MenuItem value="sd14">Stable Diffusion v1.4</MenuItem>
                   </Select>
+                  
+                  {/* Checkpoint Loading Progress */}
+                  {checkpointLoading && (
+                    <Box sx={{ mt: 2 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                        <Typography variant="body2" color="text.secondary" sx={{ flexGrow: 1 }}>
+                          {loadingMessage || 'Loading checkpoint...'}
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          {Math.round(loadingProgress)}%
+                        </Typography>
+                      </Box>
+                      <LinearProgress 
+                        variant="determinate" 
+                        value={loadingProgress} 
+                        sx={{
+                          height: 6,
+                          borderRadius: 3,
+                          backgroundColor: 'rgba(255, 255, 255, 0.1)',
+                          '& .MuiLinearProgress-bar': {
+                            borderRadius: 3,
+                            background: 'linear-gradient(90deg, #00f5ff, #8b5cf6)',
+                          }
+                        }}
+                      />
+                    </Box>
+                  )}
                 </FormControl>
 
                 {/* Sampling */}
@@ -412,27 +595,24 @@ export default function InferencePage() {
                 multiline
                 minRows={2}
                 fullWidth
-                placeholder="low quality, blurry, distorted..."
+                placeholder="low quality, blurry..."
                 sx={{ mb: 3 }}
               />
 
               <Button
                 variant="contained"
-                size="large"
-                startIcon={isGenerating ? <CircularProgress size={20} color="inherit" /> : <ImageIcon />}
                 onClick={handleGenerate}
-                disabled={!prompt.trim() || isGenerating}
+                disabled={!prompt.trim() || isGenerating || checkpointLoading}
                 fullWidth
+                size="large"
                 sx={{
-                  py: 2,
-                  fontSize: '1.1rem',
-                  fontWeight: 600,
-                  background: isGenerating ? 
-                    'linear-gradient(45deg, #666, #888)' :
-                    'linear-gradient(135deg, #00f5ff, #8b5cf6)',
-                  boxShadow: isGenerating ? 'none' : '0 8px 32px rgba(0, 245, 255, 0.3)',
+                  py: 1.5,
+                  background: 'linear-gradient(135deg, #00f5ff, #8b5cf6)',
                   '&:hover': {
-                    boxShadow: isGenerating ? 'none' : '0 12px 48px rgba(0, 245, 255, 0.4)',
+                    background: 'linear-gradient(135deg, #00c4db, #7c3aed)',
+                  },
+                  '&:disabled': {
+                    background: 'rgba(255, 255, 255, 0.1)',
                   }
                 }}
               >
@@ -441,7 +621,7 @@ export default function InferencePage() {
             </Paper>
           </Grid>
 
-          {/* Right Panel - Generated Images Gallery Only */}
+          {/* Right Panel - Generated Images */}
           <Grid item xs={12} lg={7}>
             <Paper 
               elevation={0}
@@ -450,14 +630,15 @@ export default function InferencePage() {
                 borderRadius: 3,
                 background: 'rgba(20, 25, 40, 0.6)',
                 border: '1px solid rgba(255, 255, 255, 0.08)',
-                minHeight: 600,
                 display: 'flex',
-                flexDirection: 'column'
+                flexDirection: 'column',
+                minHeight: '600px'
               }}
             >
+              {/* Header */}
               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
                 <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                  <PhotoLibraryIcon sx={{ mr: 1, color: 'primary.main' }} />
+                  <ImageIcon sx={{ mr: 1, color: 'primary.main' }} />
                   <Typography variant="h6" sx={{ fontWeight: 500 }}>
                     Generated Images
                   </Typography>
@@ -609,6 +790,17 @@ export default function InferencePage() {
                                   >
                                     <FullscreenIcon />
                                   </IconButton>
+                                  <IconButton
+                                    size="small"
+                                    onClick={() => handleShowImageDetails(lastMetadata, idx)}
+                                    sx={{ 
+                                      color: 'info.main',
+                                      '&:hover': { backgroundColor: 'rgba(33, 150, 243, 0.1)' }
+                                    }}
+                                    title="View Details"
+                                  >
+                                    <InfoIcon />
+                                  </IconButton>
                                 </Box>
                                 <IconButton
                                   size="small"
@@ -637,6 +829,9 @@ export default function InferencePage() {
                           border: '1px solid rgba(255, 255, 255, 0.05)'
                         }}>
                           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                            <strong>Model:</strong> {lastMetadata.model_name}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
                             <strong>Prompt:</strong> {lastMetadata.prompt}
                           </Typography>
                           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
@@ -656,6 +851,297 @@ export default function InferencePage() {
             </Paper>
           </Grid>
         </Grid>
+
+        {/* Image History Section */}
+        {imageHistory.length > 0 && (
+          <Box sx={{ mt: 4 }}>
+            <Paper 
+              elevation={0}
+              sx={{ 
+                p: 4, 
+                borderRadius: 3,
+                background: 'rgba(20, 25, 40, 0.6)',
+                border: '1px solid rgba(255, 255, 255, 0.08)',
+              }}
+            >
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                  <HistoryIcon sx={{ mr: 1, color: 'primary.main' }} />
+                  <Typography variant="h6" sx={{ fontWeight: 500 }}>
+                    Image History
+                  </Typography>
+                  <Chip 
+                    label={`${imageHistory.length} generations`} 
+                    size="small" 
+                    color="primary" 
+                    sx={{ ml: 2 }}
+                  />
+                </Box>
+                <Button
+                  startIcon={<DeleteIcon />}
+                  onClick={handleClearHistory}
+                  size="small"
+                  variant="outlined"
+                  color="error"
+                  sx={{
+                    borderColor: 'rgba(244, 67, 54, 0.2)',
+                    '&:hover': {
+                      borderColor: 'error.main',
+                    }
+                  }}
+                >
+                  Clear History
+                </Button>
+              </Box>
+              
+              <Box sx={{ 
+                display: 'grid', 
+                gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', 
+                gap: 2,
+                maxHeight: '300px',
+                overflowY: 'auto',
+                '&::-webkit-scrollbar': {
+                  width: '8px',
+                },
+                '&::-webkit-scrollbar-track': {
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  borderRadius: '4px',
+                },
+                '&::-webkit-scrollbar-thumb': {
+                  background: 'rgba(0, 245, 255, 0.3)',
+                  borderRadius: '4px',
+                  '&:hover': {
+                    background: 'rgba(0, 245, 255, 0.5)',
+                  }
+                }
+              }}>
+                {imageHistory.map((historyItem) => (
+                  historyItem.images.map((img, imgIndex) => (
+                    <motion.div
+                      key={`${historyItem.id}-${imgIndex}`}
+                      initial={{ opacity: 0, scale: 0.8 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ duration: 0.3 }}
+                    >
+                      <Card 
+                        sx={{ 
+                          background: 'rgba(15, 20, 35, 0.8)',
+                          border: '1px solid rgba(255, 255, 255, 0.05)',
+                          borderRadius: 2,
+                          overflow: 'hidden',
+                          transition: 'all 0.3s ease',
+                          '&:hover': {
+                            transform: 'translateY(-2px)',
+                            boxShadow: '0 8px 20px rgba(0, 245, 255, 0.1)',
+                            border: '1px solid rgba(0, 245, 255, 0.3)'
+                          }
+                        }}
+                      >
+                        <CardMedia
+                          component="img"
+                          image={img}
+                          alt={`History ${historyItem.id}-${imgIndex}`}
+                          sx={{ 
+                            aspectRatio: '1/1',
+                            objectFit: 'cover',
+                            cursor: 'pointer'
+                          }}
+                          onClick={() => handleHistoryImageClick(historyItem, imgIndex)}
+                        />
+                        <Box sx={{ 
+                          p: 1, 
+                          background: 'rgba(0, 0, 0, 0.6)',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center'
+                        }}>
+                          <Box sx={{ flex: 1, textAlign: 'center' }}>
+                            <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem', display: 'block' }}>
+                              {historyItem.metadata.model_name}
+                            </Typography>
+                            {historyItem.metadata.aesthetic_scores && historyItem.metadata.aesthetic_scores[imgIndex] && (
+                              <Typography variant="caption" color="primary.main" sx={{ fontSize: '0.7rem' }}>
+                                {historyItem.metadata.aesthetic_scores[imgIndex].toFixed(2)}
+                              </Typography>
+                            )}
+                          </Box>
+                          <IconButton
+                            size="small"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleSaveImage(img, imgIndex);
+                            }}
+                            sx={{ 
+                              color: 'primary.main',
+                              ml: 1,
+                              '&:hover': { backgroundColor: 'rgba(0, 245, 255, 0.1)' }
+                            }}
+                            title="Download Image"
+                          >
+                            <DownloadIcon sx={{ fontSize: '1rem' }} />
+                          </IconButton>
+                        </Box>
+                      </Card>
+                    </motion.div>
+                  ))
+                ))}
+              </Box>
+            </Paper>
+          </Box>
+        )}
+
+        {/* Image Details Dialog */}
+        <Dialog
+          open={detailDialogOpen}
+          onClose={() => setDetailDialogOpen(false)}
+          maxWidth="md"
+          fullWidth
+          PaperProps={{
+            sx: {
+              background: 'rgba(20, 25, 40, 0.95)',
+              border: '1px solid rgba(255, 255, 255, 0.08)',
+            }
+          }}
+        >
+          <DialogTitle sx={{ 
+            display: 'flex', 
+            justifyContent: 'space-between', 
+            alignItems: 'center',
+            borderBottom: '1px solid rgba(255, 255, 255, 0.08)'
+          }}>
+            <Typography variant="h6">Image Details</Typography>
+            <IconButton 
+              onClick={() => setDetailDialogOpen(false)}
+              sx={{ color: 'text.secondary' }}
+            >
+              <CloseIcon />
+            </IconButton>
+          </DialogTitle>
+          <DialogContent sx={{ p: 3 }}>
+            {selectedImageDetails && (
+              <Box>
+                {/* Selected Image Display */}
+                {selectedImageDetails.images && selectedImageDetails.images[selectedImageDetails.selectedImageIndex || 0] && (
+                  <Box sx={{ mb: 4, textAlign: 'center' }}>
+                    <Box sx={{ position: 'relative', display: 'inline-block' }}>
+                      <img
+                        src={selectedImageDetails.images[selectedImageDetails.selectedImageIndex || 0]}
+                        alt="Selected"
+                        style={{
+                          maxWidth: '100%',
+                          maxHeight: '400px',
+                          borderRadius: '12px',
+                          objectFit: 'contain',
+                          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)'
+                        }}
+                      />
+                      <Box sx={{ 
+                        mt: 2,
+                        display: 'flex',
+                        justifyContent: 'center',
+                        gap: 2
+                      }}>
+                        <Button
+                          variant="contained"
+                          startIcon={<DownloadIcon />}
+                          onClick={() => handleSaveImage(
+                            selectedImageDetails.images[selectedImageDetails.selectedImageIndex || 0], 
+                            selectedImageDetails.selectedImageIndex || 0
+                          )}
+                          sx={{
+                            background: 'linear-gradient(135deg, #00f5ff, #8b5cf6)',
+                            '&:hover': {
+                              background: 'linear-gradient(135deg, #00c4db, #7c3aed)',
+                            }
+                          }}
+                        >
+                          Download Image
+                        </Button>
+                        <Button
+                          variant="outlined"
+                          startIcon={<FullscreenIcon />}
+                          onClick={() => handleViewFullscreen(selectedImageDetails.images[selectedImageDetails.selectedImageIndex || 0])}
+                          sx={{
+                            borderColor: 'rgba(255, 255, 255, 0.2)',
+                            color: 'text.secondary',
+                            '&:hover': {
+                              borderColor: 'primary.main',
+                              color: 'primary.main'
+                            }
+                          }}
+                        >
+                          View Fullscreen
+                        </Button>
+                      </Box>
+                    </Box>
+                  </Box>
+                )}
+                
+                <Grid container spacing={2}>
+                  <Grid item xs={12}>
+                    <Typography variant="subtitle2" color="primary.main" gutterBottom>
+                      Model Information
+                    </Typography>
+                    <Typography variant="body2" sx={{ mb: 2 }}>
+                      <strong>Model:</strong> {selectedImageDetails.model_name}
+                    </Typography>
+                  </Grid>
+                  
+                  <Grid item xs={12}>
+                    <Typography variant="subtitle2" color="primary.main" gutterBottom>
+                      Prompt
+                    </Typography>
+                    <Typography variant="body2" sx={{ mb: 2, p: 2, background: 'rgba(0, 0, 0, 0.2)', borderRadius: 1 }}>
+                      {selectedImageDetails.prompt}
+                    </Typography>
+                  </Grid>
+                  
+                  <Grid item xs={12} sm={6}>
+                    <Typography variant="subtitle2" color="primary.main" gutterBottom>
+                      Generation Settings
+                    </Typography>
+                    <Typography variant="body2" sx={{ mb: 1 }}>
+                      <strong>Steps:</strong> {selectedImageDetails.sampling_steps}
+                    </Typography>
+                    <Typography variant="body2" sx={{ mb: 1 }}>
+                      <strong>CFG Scale:</strong> {selectedImageDetails.cfg_scale}
+                    </Typography>
+                    <Typography variant="body2" sx={{ mb: 1 }}>
+                      <strong>Size:</strong> {selectedImageDetails.width}×{selectedImageDetails.height}
+                    </Typography>
+                    <Typography variant="body2" sx={{ mb: 1 }}>
+                      <strong>Seed:</strong> {selectedImageDetails.seed}
+                    </Typography>
+                  </Grid>
+                  
+                  {selectedImageDetails.aesthetic_scores && (
+                    <Grid item xs={12} sm={6}>
+                      <Typography variant="subtitle2" color="primary.main" gutterBottom>
+                        Aesthetic Scores
+                      </Typography>
+                      {selectedImageDetails.aesthetic_scores.map((score, index) => (
+                        <Typography key={index} variant="body2" sx={{ mb: 1 }}>
+                          <strong>Image {index + 1}:</strong> {score.toFixed(2)}
+                        </Typography>
+                      ))}
+                    </Grid>
+                  )}
+                  
+                  {selectedImageDetails.timestamp && (
+                    <Grid item xs={12}>
+                      <Typography variant="subtitle2" color="primary.main" gutterBottom>
+                        Generation Time
+                      </Typography>
+                      <Typography variant="body2">
+                        {new Date(selectedImageDetails.timestamp).toLocaleString()}
+                      </Typography>
+                    </Grid>
+                  )}
+                </Grid>
+              </Box>
+            )}
+          </DialogContent>
+        </Dialog>
       </motion.div>
     </Container>
   );

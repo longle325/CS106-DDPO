@@ -266,22 +266,26 @@ function AboutUs() {
     {
       name: "Lê Bảo Long",
       id: "23520877",
-      image: "/images/guts.png"
+      image: "/images/guts.png",
+      github: "https://github.com/longle325"
     },
     {
       name: "Nguyễn Thuận Phát",
       id: "23521146", 
-      image: "/images/ryan_ng.png"
+      image: "/images/ryan_ng.png",
+      github: "https://github.com/RyanNg1403"
     },
     {
       name: "Nguyễn Tiến Thắng",
       id: "23521429",
-      image: "/images/willingWill.png"
+      image: "/images/willingWill.png",
+      github: "https://github.com/willingWill17"
     },
     {
       name: "Phan Xuân Thành",
       id: "23521461",
-      image: "/images/thanhpahn.jpg"
+      image: "/images/thanhpahn.jpg",
+      github: "https://github.com/pahnthanh"
     }
   ];
 
@@ -381,13 +385,16 @@ function AboutUs() {
                 p: 4,
                 height: '100%',
                 textAlign: 'center',
+                cursor: 'pointer',
                 transition: 'all 0.3s ease',
                 '&:hover': {
                   transform: 'translateY(-8px)',
                   boxShadow: '0 20px 60px rgba(0, 245, 255, 0.1)',
                   border: '1px solid rgba(0, 245, 255, 0.2)'
                 }
-              }}>
+              }}
+              onClick={() => window.open(member.github, '_blank')}
+              >
                 <Box sx={{
                   width: 120,
                   height: 120,
